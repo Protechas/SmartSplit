@@ -365,6 +365,11 @@ class ExcelSplitterApp:
                             if last_row <= 1:
                                 continue
                             
+                            # Check if AutoFilter already exists, turn it off temporarily
+                            had_autofilter = ws.AutoFilterMode
+                            if had_autofilter:
+                                ws.AutoFilterMode = False
+                            
                             # Use AutoFilter to bulk delete non-matching rows (FAST)
                             data_range = ws.Range(ws.Cells(1, 1), ws.Cells(last_row, ws.UsedRange.Columns.Count))
                             
@@ -378,8 +383,11 @@ class ExcelSplitterApp:
                             except:
                                 pass  # No rows to delete (all match)
                             
-                            # Remove AutoFilter
-                            ws.AutoFilterMode = False
+                            # Show all data (clears filter but keeps AutoFilter enabled)
+                            try:
+                                ws.ShowAllData()
+                            except:
+                                pass  # No filter active
                             
                         except Exception as e:
                             pass
