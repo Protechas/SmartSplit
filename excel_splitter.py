@@ -41,12 +41,13 @@ class DropZone(tk.Canvas):
     def __init__(self, parent, on_drop_callback, **kwargs):
         super().__init__(parent, **kwargs)
         self.on_drop_callback = on_drop_callback
+        self.current_file = None
         self.configure(bg=DarkTheme.BG_SECONDARY, highlightthickness=2,
             highlightbackground=DarkTheme.BORDER, highlightcolor=DarkTheme.ACCENT)
         self._draw_drop_zone()
         self.bind("<Button-1>", self._on_click)
-        self.bind("<Enter>", lambda e: self._draw_drop_zone(True))
-        self.bind("<Leave>", lambda e: self._draw_drop_zone(False))
+        self.bind("<Enter>", lambda e: self._draw_drop_zone(True) if not self.current_file else None)
+        self.bind("<Leave>", lambda e: self._draw_drop_zone(False) if not self.current_file else None)
         
     def _draw_drop_zone(self, hover=False):
         self.delete("all")
@@ -59,6 +60,41 @@ class DropZone(tk.Canvas):
         self.create_polygon(cx+15, cy-20, cx+15, cy-10, cx+25, cy-10, fill=DarkTheme.BG_SECONDARY, outline=icon_color)
         text_color = DarkTheme.FG if hover else DarkTheme.FG_SECONDARY
         self.create_text(cx, cy+50, text="Drop Excel file here\nor click to browse", fill=text_color, font=("Segoe UI", 12), justify="center")
+    
+    def show_success(self, filename):
+        """Show green checkmark with filename for 2 seconds"""
+        self.current_file = filename
+        self.delete("all")
+        w, h = self.winfo_width() or 400, self.winfo_height() or 200
+        
+        # Green border
+        self.create_rectangle(10, 10, w-10, h-10, outline=DarkTheme.SUCCESS, width=3)
+        
+        cx, cy = w // 2, h // 2 - 15
+        
+        # Draw big green checkmark
+        check_size = 40
+        self.create_line(
+            cx - check_size, cy,
+            cx - check_size//3, cy + check_size//2,
+            cx + check_size, cy - check_size//2,
+            fill=DarkTheme.SUCCESS, width=8, capstyle="round", joinstyle="round"
+        )
+        
+        # Show filename (truncate if too long)
+        display_name = filename if len(filename) <= 50 else filename[:47] + "..."
+        self.create_text(cx, cy + 55, text=display_name, fill=DarkTheme.SUCCESS, 
+            font=("Segoe UI", 11, "bold"), justify="center")
+        self.create_text(cx, cy + 80, text="File loaded successfully!", fill=DarkTheme.FG_SECONDARY, 
+            font=("Segoe UI", 9), justify="center")
+        
+        # Reset after 2 seconds
+        self.after(2000, self.reset)
+    
+    def reset(self):
+        """Reset to normal drop zone state"""
+        self.current_file = None
+        self._draw_drop_zone()
         
     def _on_click(self, event):
         files = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
@@ -66,7 +102,10 @@ class DropZone(tk.Canvas):
             self.on_drop_callback(list(files))
             
     def update_size(self, event=None):
-        self.after(10, self._draw_drop_zone)
+        if self.current_file:
+            self.show_success(self.current_file)
+        else:
+            self.after(10, self._draw_drop_zone)
 
 
 class ExcelSplitterApp:
@@ -228,6 +267,12 @@ class ExcelSplitterApp:
     def _start_processing(self, file_paths):
         if self.processing:
             return
+        
+        # Show green checkmark with filename
+        from pathlib import Path
+        filename = Path(file_paths[0]).name
+        self.drop_zone.show_success(filename)
+        
         self.processing = True
         self.log_text.delete("1.0", "end")
         self.progress_var.set(0)
