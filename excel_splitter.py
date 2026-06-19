@@ -109,7 +109,8 @@ class DropZone(tk.Canvas):
 
 
 class ExcelSplitterApp:
-    INVALID_MAKES = {'%', 'aaa', 'hold', 'x', 'test', 'n/a', 'na', 'none', '', 'tbd', 'unknown', 'other', 'misc', 'temp', 'delete'}
+    INVALID_MAKES = {'aaa', 'hold', 'x', 'test', 'n/a', 'na', 'none', '', 'tbd', 'unknown', 'other', 'misc', 'temp', 'delete'}
+    INCLUDE_IN_ALL = {'%'}  # These values should be included in ALL make files
     
     def __init__(self, root):
         self.root = root
@@ -154,14 +155,9 @@ class ExcelSplitterApp:
         main_frame.pack(fill="both", expand=True)
         
         ttk.Label(main_frame, text="Excel Splitter by Make", style="DarkTitle.TLabel").pack(pady=(0, 5))
-        ttk.Label(main_frame, text="Uses Excel automation - preserves ALL formatting", style="DarkSubtitle.TLabel").pack(pady=(0, 20))
+        ttk.Label(main_frame, text="Uses Excel automation - preserves ALL formatting", style="DarkSubtitle.TLabel").pack(pady=(0, 15))
         
-        drop_frame = ttk.Frame(main_frame, style="Dark.TFrame")
-        drop_frame.pack(fill="both", expand=True, pady=(0, 20))
-        self.drop_zone = DropZone(drop_frame, self._start_processing, width=400, height=150)
-        self.drop_zone.pack(fill="both", expand=True)
-        self.drop_zone.bind("<Configure>", self.drop_zone.update_size)
-        
+        # Output selection (above drop zone)
         output_frame = ttk.Frame(main_frame, style="Dark.TFrame")
         output_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(output_frame, text="Output:", style="Dark.TLabel").pack(side="left")
@@ -171,7 +167,7 @@ class ExcelSplitterApp:
         tk.Button(output_frame, text="Browse", command=lambda: self.output_var.set(filedialog.askdirectory(initialdir=self.output_var.get()) or self.output_var.get()),
             bg=DarkTheme.BG_TERTIARY, fg=DarkTheme.FG, relief="flat", font=("Segoe UI", 9)).pack(side="right")
         
-        # Version selection frame with two dropdowns
+        # Version selection (above drop zone)
         version_frame = ttk.Frame(main_frame, style="Dark.TFrame")
         version_frame.pack(fill="x", pady=(0, 15))
         ttk.Label(version_frame, text="Version:  v", style="Dark.TLabel").pack(side="left")
@@ -195,6 +191,13 @@ class ExcelSplitterApp:
         # Style the comboboxes
         self.root.option_add('*TCombobox*Listbox.background', DarkTheme.BG_SECONDARY)
         self.root.option_add('*TCombobox*Listbox.foreground', DarkTheme.FG)
+        
+        # Drop zone (now below output and version)
+        drop_frame = ttk.Frame(main_frame, style="Dark.TFrame")
+        drop_frame.pack(fill="both", expand=True, pady=(0, 15))
+        self.drop_zone = DropZone(drop_frame, self._start_processing, width=400, height=150)
+        self.drop_zone.pack(fill="both", expand=True)
+        self.drop_zone.bind("<Configure>", self.drop_zone.update_size)
         
         self.progress_var = tk.DoubleVar()
         ttk.Progressbar(main_frame, variable=self.progress_var, mode="determinate").pack(fill="x", pady=(0, 10))
@@ -262,7 +265,7 @@ class ExcelSplitterApp:
         if make is None:
             return False
         m = str(make).strip().lower()
-        return m and m not in self.INVALID_MAKES and len(m) > 1
+        return m and m not in self.INVALID_MAKES and m not in self.INCLUDE_IN_ALL and len(m) > 1
 
     def _start_processing(self, file_paths):
         if self.processing:
@@ -415,24 +418,39 @@ class ExcelSplitterApp:
                             if had_autofilter:
                                 ws.AutoFilterMode = False
                             
-                            # Use AutoFilter to bulk delete non-matching rows (FAST)
-                            data_range = ws.Range(ws.Cells(1, 1), ws.Cells(last_row, ws.UsedRange.Columns.Count))
+                            # Collect all unique make values that should be DELETED
+                            # (not target make AND not in INCLUDE_IN_ALL)
+                            makes_to_delete = []
+                            for row in range(2, last_row + 1):
+                                cell_val = ws.Cells(row, make_col_idx).Value
+                                if cell_val is not None:
+                                    val_str = str(cell_val).strip()
+                                    val_lower = val_str.lower()
+                                    # Keep if it's the target make or in INCLUDE_IN_ALL
+                                    if val_lower != make.lower() and val_str not in self.INCLUDE_IN_ALL:
+                                        if val_str not in makes_to_delete:
+                                            makes_to_delete.append(val_str)
                             
-                            # Apply AutoFilter on Make column, filter for NOT equal to target make
-                            data_range.AutoFilter(Field=make_col_idx, Criteria1="<>" + make)
-                            
-                            # Delete all visible (filtered) rows except header
-                            try:
-                                visible_range = ws.Range(ws.Cells(2, 1), ws.Cells(last_row, 1)).SpecialCells(12)  # xlCellTypeVisible = 12
-                                visible_range.EntireRow.Delete()
-                            except:
-                                pass  # No rows to delete (all match)
+                            if makes_to_delete:
+                                # Use AutoFilter to filter for values to delete
+                                data_range = ws.Range(ws.Cells(1, 1), ws.Cells(last_row, ws.UsedRange.Columns.Count))
+                                
+                                # Filter to show only the makes we want to delete
+                                # xlFilterValues = 7
+                                data_range.AutoFilter(Field=make_col_idx, Criteria1=makes_to_delete, Operator=7)
+                                
+                                # Delete all visible (filtered) rows except header
+                                try:
+                                    visible_range = ws.Range(ws.Cells(2, 1), ws.Cells(last_row, 1)).SpecialCells(12)
+                                    visible_range.EntireRow.Delete()
+                                except:
+                                    pass
                             
                             # Show all data (clears filter but keeps AutoFilter enabled)
                             try:
                                 ws.ShowAllData()
                             except:
-                                pass  # No filter active
+                                pass
                             
                         except Exception as e:
                             pass
